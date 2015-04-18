@@ -5,11 +5,10 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.FPSLogger;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
-import com.badlogic.gdx.graphics.Texture;
-import com.badlogic.gdx.graphics.g2d.Animation;
-import com.badlogic.gdx.graphics.g2d.Sprite;
-import com.badlogic.gdx.graphics.g2d.SpriteBatch;
-import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.graphics.g2d.*;
+import com.badlogic.gdx.math.Vector2;
+import com.badlogic.gdx.utils.viewport.FitViewport;
+import com.badlogic.gdx.utils.viewport.Viewport;
 
 public class ThrustCopter extends ApplicationAdapter
 {
@@ -17,21 +16,27 @@ public class ThrustCopter extends ApplicationAdapter
 
     private SpriteBatch batch;
 
-    private Texture background;
+    private TextureAtlas.AtlasRegion background;
 
     private OrthographicCamera camera;
 
-    private Sprite backgroundSprite;
-
     private TextureRegion terrainBelow;
-
     private TextureRegion terrainAbove;
 
     private Animation plane;
 
-    private float terrainOffset = 0;
+    private float terrainOffset;
+    private float planeAnimTime;
 
-    private float planeAnimTime = 0;
+    // Скорость
+    private Vector2 planeVelocity = new Vector2();
+    private Vector2 planePosition = new Vector2();
+    private Vector2 planeDefaultPosition = new Vector2();
+    private Vector2 gravity = new Vector2();
+
+    private Viewport viewport;
+
+    private final Vector2 damping = new Vector2(0.99f, 0.99f);
 
     @Override
     public void create()
@@ -39,14 +44,17 @@ public class ThrustCopter extends ApplicationAdapter
         fpsLogger = new FPSLogger();
 
         camera = new OrthographicCamera();
-        camera.setToOrtho(false, 800, 480);
+        camera.position.set(400,240,0);
+        viewport = new FitViewport(800, 480, camera);
 
-        background = new Texture("background.png");
+        TextureAtlas atlas = new TextureAtlas(Gdx.files.internal("ThrustCopter.pack"));
 
-        backgroundSprite = new Sprite(background);
+        background = atlas.findRegion("background");
+
+        Sprite backgroundSprite = new Sprite(background);
         backgroundSprite.setPosition(0, 0);
 
-        terrainBelow = new TextureRegion(new Texture("groundGrass.png"));
+        terrainBelow = new TextureRegion(atlas.findRegion("groundGrass"));
 
         terrainAbove = new TextureRegion(terrainBelow);
 
@@ -57,12 +65,20 @@ public class ThrustCopter extends ApplicationAdapter
 
 
         plane = new Animation(0.01f,
-                new TextureRegion(new Texture("planeRed1.png")),
-                new TextureRegion(new Texture("planeRed2.png")),
-                new TextureRegion(new Texture("planeRed3.png")),
-                new TextureRegion(new Texture("planeRed2.png")));
+                new TextureRegion(atlas.findRegion("planeRed1")),
+                new TextureRegion(atlas.findRegion("planeRed2")),
+                new TextureRegion(atlas.findRegion("planeRed3")),
+                new TextureRegion(atlas.findRegion("planeRed2")));
 
         plane.setPlayMode(Animation.PlayMode.LOOP);
+
+        resetScene();
+    }
+
+    @Override
+    public void resize (int width, int height)
+    {
+        viewport.update(width, height);
     }
 
     @Override
@@ -90,9 +106,48 @@ public class ThrustCopter extends ApplicationAdapter
         drawTerrainBelow();
         drawTerrainAbove();
 
-        batch.draw(plane.getKeyFrame(planeAnimTime), 350, 200);
+        batch.draw(plane.getKeyFrame(planeAnimTime), planePosition.x,
+                planePosition.y);
 
         batch.end();
+    }
+
+    private void resetScene()
+    {
+        terrainOffset = 0;
+        planeAnimTime = 0;
+
+        planeVelocity.set(400, 0);
+        gravity.set(0, -4);
+
+        planeDefaultPosition.set(400 - 88 / 2, 240 - 73 / 2);
+        planePosition.set(planeDefaultPosition.x, planeDefaultPosition.y);
+    }
+
+    private void updateScene()
+    {
+        float deltaTime = Gdx.graphics.getDeltaTime();
+
+        planeAnimTime += deltaTime;
+
+        planeVelocity.scl(damping);
+        planeVelocity.add(gravity);
+
+        planePosition.mulAdd(planeVelocity, deltaTime);
+
+        terrainOffset -= planePosition.x - planeDefaultPosition.x;
+
+        planePosition.x = planeDefaultPosition.x;
+
+        if (terrainOffset * -1 > terrainBelow.getRegionWidth())
+        {
+            terrainOffset = 0;
+        }
+
+        if (terrainOffset > 0)
+        {
+            terrainOffset = -terrainBelow.getRegionWidth();
+        }
     }
 
     private void drawTerrainAbove()
@@ -108,13 +163,6 @@ public class ThrustCopter extends ApplicationAdapter
         batch.draw(terrainBelow, terrainOffset, 0);
         batch.draw(terrainBelow, terrainOffset + terrainBelow.
                 getRegionWidth(), 0);
-    }
-
-    private void updateScene()
-    {
-        float deltaTime = Gdx.graphics.getDeltaTime();
-        planeAnimTime += deltaTime;
-        terrainOffset -= 200 * deltaTime;
     }
 
     private void drawBackground()
