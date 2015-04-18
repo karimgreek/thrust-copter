@@ -1,4 +1,4 @@
 # ThrustCopter
 Libgdx game created using samples from book "Libgdx game development essentials".
 
-Special thanks [kenny](http://opengameart.org/users/kenney) for art.
+Special thanks [kenney](http://www.kenney.nl/) for art.
