@@ -2,24 +2,27 @@ package libgdx.thrust.copter;
 
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.audio.Music;
+import com.badlogic.gdx.audio.Sound;
 import com.badlogic.gdx.graphics.FPSLogger;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.*;
 import com.badlogic.gdx.math.MathUtils;
+import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.math.Vector3;
+import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 import com.badlogic.gdx.utils.viewport.Viewport;
 
 public class ThrustCopter extends ApplicationAdapter
 {
     private final Vector2 DAMPING = new Vector2(0.99f, 0.99f);
-
     private static final float TAP_DRAW_TIME_MAX = 1.0f;
-
     private static final int TOUCH_IMPULSE = 500;
+    private static final int METEOR_SPEED = 60;
 
     private FPSLogger fpsLogger;
 
@@ -29,24 +32,39 @@ public class ThrustCopter extends ApplicationAdapter
 
     private OrthographicCamera camera;
 
+    private TextureAtlas atlas;
+
     private TextureRegion terrainBelow;
     private TextureRegion terrainAbove;
     private TextureRegion tapIndicator;
     private TextureRegion tap1;
     private TextureRegion gameOver;
+    private TextureRegion pillarDown;
+    private TextureRegion pillarUp;
+    private TextureRegion selectedMeteorTexture;
+
+    private Array<Vector2> pillars = new Array<Vector2>();
+    Array<TextureAtlas.AtlasRegion> meteorTextures = new Array<TextureAtlas.AtlasRegion>();
 
     private Animation plane;
 
     private float terrainOffset;
     private float planeAnimTime;
     private float tapDrawTime;
+    private float deltaPosition;
+    private float nextMeteorIn;
+
+    private boolean meteorInScene;
 
     // Скорость
     private Vector2 planeVelocity = new Vector2();
     private Vector2 scrollVelocity = new Vector2();
     private Vector2 planePosition = new Vector2();
+    private Vector2 lastPillarPosition = new Vector2();
     private Vector2 planeDefaultPosition = new Vector2();
     private Vector2 gravity = new Vector2();
+    private Vector2 meteorPosition = new Vector2();
+    private Vector2 meteorVelocity = new Vector2();
 
     private Vector3 touchPosition = new Vector3();
 
@@ -54,7 +72,16 @@ public class ThrustCopter extends ApplicationAdapter
 
     private GameState gameState = GameState.INIT;
 
-    static enum GameState
+    private Rectangle planeRect = new Rectangle();
+    private Rectangle obstacleRect = new Rectangle();
+
+    private Music music;
+
+    private Sound tapSound;
+    private Sound crashSound;
+    private Sound spawnSound;
+
+    private static enum GameState
     {
         INIT, ACTION, GAME_OVER
     }
@@ -67,7 +94,7 @@ public class ThrustCopter extends ApplicationAdapter
 
         createCamera();
 
-        TextureAtlas atlas = new TextureAtlas(Gdx.files.internal("ThrustCopter.pack"));
+        atlas = new TextureAtlas(Gdx.files.internal("ThrustCopter.pack"));
 
         createTextRegions(atlas);
 
@@ -85,6 +112,14 @@ public class ThrustCopter extends ApplicationAdapter
                 new TextureRegion(atlas.findRegion("planeRed3")),
                 new TextureRegion(atlas.findRegion("planeRed2")));
         plane.setPlayMode(Animation.PlayMode.LOOP);
+
+        music = Gdx.audio.newMusic(Gdx.files.internal("sounds/journey.mp3"));
+        music.setLooping(true);
+        music.play();
+
+        tapSound = Gdx.audio.newSound(Gdx.files.internal("sounds/pop.ogg"));
+        crashSound = Gdx.audio.newSound(Gdx.files.internal("sounds/crash.ogg"));
+        spawnSound = Gdx.audio.newSound(Gdx.files.internal("sounds/alarm.ogg"));
 
         resetScene();
     }
@@ -117,6 +152,8 @@ public class ThrustCopter extends ApplicationAdapter
 
         drawBackground();
 
+        drawPillars();
+
         drawTerrainBelow();
         drawTerrainAbove();
 
@@ -140,7 +177,29 @@ public class ThrustCopter extends ApplicationAdapter
             batch.draw(gameOver, 400 - 206, 240 - 80);
         }
 
+        if (meteorInScene)
+        {
+            batch.draw(selectedMeteorTexture, meteorPosition.x,
+                    meteorPosition.y);
+        }
+
         batch.end();
+    }
+
+    private void drawPillars()
+    {
+        for (Vector2 vec : pillars)
+        {
+            if (vec.y == 1)
+            {
+                batch.draw(pillarUp, vec.x, 0);
+            }
+            else
+            {
+                batch.draw(pillarDown, vec.x,
+                        480 - pillarDown.getRegionHeight());
+            }
+        }
     }
 
     private void resetScene()
@@ -152,14 +211,22 @@ public class ThrustCopter extends ApplicationAdapter
         planeVelocity.set(400, 0);
         gravity.set(0, -4);
 
-        planeDefaultPosition.set(400 - 88 / 2, 240 - 73 / 2);
+        planeDefaultPosition.set(300 - 88 / 2, 240 - 73 / 2);
         planePosition.set(planeDefaultPosition.x, planeDefaultPosition.y);
+
+        pillars.clear();
+        addPillar();
+
+        meteorInScene = false;
+        nextMeteorIn = (float) Math.random() * 5;
     }
 
     private void updateScene()
     {
         if (Gdx.input.justTouched())
         {
+            tapSound.play();
+
             if (gameState == GameState.INIT)
             {
                 gameState = GameState.ACTION;
@@ -168,6 +235,7 @@ public class ThrustCopter extends ApplicationAdapter
 
             if (gameState == GameState.GAME_OVER)
             {
+
                 gameState = GameState.INIT;
                 resetScene();
                 return;
@@ -205,7 +273,8 @@ public class ThrustCopter extends ApplicationAdapter
 
         planePosition.mulAdd(planeVelocity, deltaTime);
 
-        terrainOffset -= planePosition.x - planeDefaultPosition.x;
+        deltaPosition = planePosition.x - planeDefaultPosition.x;
+        terrainOffset -= deltaPosition;
 
         planePosition.x = planeDefaultPosition.x;
 
@@ -224,11 +293,150 @@ public class ThrustCopter extends ApplicationAdapter
         {
             if (gameState != GameState.GAME_OVER)
             {
+                crashSound.play();
                 gameState = GameState.GAME_OVER;
             }
         }
 
+        pillarsLogic();
+
+        meteorLogic(deltaTime);
+
         tapDrawTime -= deltaTime;
+    }
+
+    private void meteorLogic(float deltaTime)
+    {
+        if (meteorInScene)
+        {
+            meteorPosition.mulAdd(meteorVelocity, deltaTime);
+
+            meteorPosition.x -= deltaPosition;
+
+            if (meteorPosition.x < -10)
+            {
+                meteorInScene = false;
+            }
+        }
+
+        nextMeteorIn -= deltaTime;
+
+        if (nextMeteorIn <= 0)
+        {
+            launchMeteor();
+        }
+
+        if (meteorInScene)
+        {
+            obstacleRect.set(meteorPosition.x + 2, meteorPosition.y + 2,
+                    selectedMeteorTexture.getRegionWidth() - 4,
+                    selectedMeteorTexture.getRegionHeight() - 4);
+
+            if (planeRect.overlaps(obstacleRect))
+            {
+                if (gameState != GameState.GAME_OVER)
+                {
+                    crashSound.play();
+                    gameState = GameState.GAME_OVER;
+                }
+            }
+        }
+    }
+
+    private void launchMeteor()
+    {
+        nextMeteorIn = 1.5f + (float) Math.random() * 5;
+
+        if (meteorInScene)
+        {
+            return;
+        }
+
+        spawnSound.play();
+
+        meteorInScene = true;
+
+        int id = (int) (Math.random() * meteorTextures.size);
+        selectedMeteorTexture = meteorTextures.get(id);
+
+        meteorPosition.x = 810;
+        meteorPosition.y = (float) (80 + Math.random() * 320);
+
+        Vector2 destination = new Vector2();
+        destination.x = -10;
+        destination.y = (float) (80 + Math.random() * 320);
+        destination.sub(meteorPosition).nor();
+
+        meteorVelocity.mulAdd(destination, METEOR_SPEED);
+    }
+
+    private void pillarsLogic()
+    {
+        planeRect.set(planePosition.x + 16, planePosition.y, 50, 73);
+
+        for (Vector2 vec : pillars)
+        {
+            vec.x -= deltaPosition;
+
+            if (vec.x + pillarUp.getRegionWidth() < -10)
+            {
+                pillars.removeValue(vec, false);
+            }
+
+            if (vec.y == 1)
+            {
+                obstacleRect.set(vec.x + 10, 0, pillarUp.getRegionWidth() - 20,
+                        pillarUp.getRegionHeight() - 10);
+            }
+            else
+            {
+                obstacleRect.set(vec.x + 10,
+                        480 - pillarDown.getRegionHeight() + 10,
+                        pillarUp.getRegionWidth() - 20, pillarUp.getRegionHeight());
+            }
+
+            if (planeRect.overlaps(obstacleRect))
+            {
+                if (gameState != GameState.GAME_OVER)
+                {
+                    crashSound.play();
+                    gameState = GameState.GAME_OVER;
+                }
+            }
+        }
+
+        if (lastPillarPosition.x < 400)
+        {
+            addPillar();
+        }
+    }
+
+    private void addPillar()
+    {
+        Vector2 pillarPosition = new Vector2();
+
+        if (pillars.size == 0)
+        {
+            pillarPosition.x = (float) (800 + Math.random() * 600);
+        }
+        else
+        {
+            pillarPosition.x = lastPillarPosition.x + (float) (600 +
+                    Math.random() * 600);
+        }
+
+        if (MathUtils.randomBoolean())
+        {
+            pillarPosition.y = 1;
+        }
+        else
+        {
+            pillarPosition.y = -1; //upside down
+        }
+
+        lastPillarPosition = pillarPosition;
+
+        pillars.add(pillarPosition);
     }
 
     private void drawTerrainAbove()
@@ -254,8 +462,23 @@ public class ThrustCopter extends ApplicationAdapter
         tapIndicator = atlas.findRegion("tap2");
         tap1 = atlas.findRegion("tap1");
 
-        terrainBelow = new TextureRegion(atlas.findRegion("groundGrass"));
+        terrainBelow = atlas.findRegion("groundGrass");
         terrainAbove = new TextureRegion(terrainBelow);
+
+        pillarUp = atlas.findRegion("rockGrassUp");
+        pillarDown = atlas.findRegion("rockGrassDown");
+
+        initMeteorTextures(atlas);
+    }
+
+    private void initMeteorTextures(TextureAtlas atlas)
+    {
+        meteorTextures.add(atlas.findRegion("meteorBrown_med1"));
+        meteorTextures.add(atlas.findRegion("meteorBrown_med2"));
+        meteorTextures.add(atlas.findRegion("meteorBrown_small1"));
+        meteorTextures.add(atlas.findRegion("meteorBrown_small2"));
+        meteorTextures.add(atlas.findRegion("meteorBrown_tiny1"));
+        meteorTextures.add(atlas.findRegion("meteorBrown_tiny2"));
     }
 
     private void createCamera()
@@ -275,6 +498,19 @@ public class ThrustCopter extends ApplicationAdapter
         batch.draw(background, 0, 0);
 
         batch.enableBlending();
+    }
+
+    @Override
+    public void dispose()
+    {
+        tapSound.dispose();
+        crashSound.dispose();
+        spawnSound.dispose();
+        music.dispose();
+        batch.dispose();
+        pillars.clear();
+        atlas.dispose();
+        meteorTextures.clear();
     }
 
 }
