@@ -21,7 +21,10 @@ public class ThrustCopterScene extends ScreenAdapter
     private final Vector2 DAMPING = new Vector2(0.99f, 0.99f);
     private static final float TAP_DRAW_TIME_MAX = 1.0f;
     private static final int TOUCH_IMPULSE = 500;
-    private static final int METEOR_SPEED = 60;
+    private static final int METEOR_SPEED = 30;
+
+    private final ParticleEffect smoke;
+    private final ParticleEffect explosion;
 
     private TextureAtlas.AtlasRegion background;
 
@@ -123,6 +126,9 @@ public class ThrustCopterScene extends ScreenAdapter
         crashSound = manager.get("sounds/crash.ogg", Sound.class);
         spawnSound = manager.get("sounds/alarm.ogg", Sound.class);
 
+        smoke = manager.get("smoke", ParticleEffect.class);
+        explosion = manager.get("explosion", ParticleEffect.class);
+
         resetScene();
     }
 
@@ -151,6 +157,8 @@ public class ThrustCopterScene extends ScreenAdapter
         drawTerrainBelow();
         drawTerrainAbove();
 
+        smoke.draw(batch);
+
         batch.draw(plane.getKeyFrame(planeAnimTime), planePosition.x,
                 planePosition.y);
 
@@ -158,7 +166,7 @@ public class ThrustCopterScene extends ScreenAdapter
         {
             batch.draw(tapIndicator, touchPosition.x - 29.5f,
                     touchPosition.y - 29.5f);
-            //29.5 is half width/height of the image
+            // 29.5 is half width / height of the image
         }
 
         if (gameState == GameState.INIT)
@@ -171,7 +179,7 @@ public class ThrustCopterScene extends ScreenAdapter
             batch.draw(gameOver, 400 - 206, 240 - 80);
         }
 
-        font.draw(batch, ""+((int)shieldCount), 390, 450);
+        font.draw(batch, "" + ((int) shieldCount), 390, 450);
 
         if (meteorInScene)
         {
@@ -179,7 +187,7 @@ public class ThrustCopterScene extends ScreenAdapter
                     meteorPosition.y);
         }
 
-        font.draw(batch, ""+(int)(starCount+score), 700, 450);
+        font.draw(batch, "" + (int) (starCount + score), 700, 450);
 
         for (Pickup pickup : pickupsInScene)
         {
@@ -190,6 +198,11 @@ public class ThrustCopterScene extends ScreenAdapter
         batch.draw(fuelIndicator, 10, 350);
         batch.setColor(Color.WHITE);
         batch.draw(fuelIndicator, 10, 350, 0, 0, fuelPercentage, 119);
+
+        if (gameState == GameState.GAME_OVER)
+        {
+            explosion.draw(batch);
+        }
 
         batch.end();
     }
@@ -274,6 +287,15 @@ public class ThrustCopterScene extends ScreenAdapter
             }
         }
 
+        if (gameState == GameState.INIT || gameState == GameState.GAME_OVER)
+        {
+            if (gameState == GameState.GAME_OVER) explosion.update(deltaTime);
+            return;
+        }
+
+        smoke.setPosition(planePosition.x + 20, planePosition.y + 30);
+        smoke.update(deltaTime);
+
         if (gameState == GameState.INIT || gameState ==
                 GameState.GAME_OVER)
         {
@@ -306,11 +328,7 @@ public class ThrustCopterScene extends ScreenAdapter
         if (planePosition.y < terrainBelow.getRegionHeight() - 35 || planePosition.y + 73 > 480 -
                 terrainBelow.getRegionHeight() + 35)
         {
-            if (gameState != GameState.GAME_OVER)
-            {
-                crashSound.play();
-                gameState = GameState.GAME_OVER;
-            }
+            endGame();
         }
 
         pillarsLogic();
@@ -374,11 +392,7 @@ public class ThrustCopterScene extends ScreenAdapter
 
             if (planeRect.overlaps(obstacleRect))
             {
-                if (gameState != GameState.GAME_OVER)
-                {
-                    crashSound.play();
-                    gameState = GameState.GAME_OVER;
-                }
+                endGame();
             }
         }
     }
@@ -437,11 +451,7 @@ public class ThrustCopterScene extends ScreenAdapter
 
             if (planeRect.overlaps(obstacleRect))
             {
-                if (gameState != GameState.GAME_OVER)
-                {
-                    crashSound.play();
-                    gameState = GameState.GAME_OVER;
-                }
+                endGame();
             }
         }
 
@@ -558,6 +568,17 @@ public class ThrustCopterScene extends ScreenAdapter
         }
     }
 
+    private void endGame()
+    {
+        if (gameState != GameState.GAME_OVER)
+        {
+            crashSound.play();
+            gameState = GameState.GAME_OVER;
+            explosion.reset();
+            explosion.setPosition(planePosition.x + 40, planePosition.y + 40);
+        }
+    }
+
     private boolean addPickup(int pickupType)
     {
         Vector2 randomPosition = new Vector2();
@@ -619,6 +640,8 @@ public class ThrustCopterScene extends ScreenAdapter
         music.dispose();
         pillars.clear();
         meteorTextures.clear();
+        smoke.dispose();
+        explosion.dispose();
     }
 
 }

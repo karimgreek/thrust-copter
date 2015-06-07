@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.FPSLogger;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.ParticleEffect;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureAtlas;
 import com.badlogic.gdx.utils.viewport.FitViewport;
@@ -53,6 +54,8 @@ public class ThrustCopter extends Game
 
     private void initAssetManager()
     {
+        manager.load("smoke", ParticleEffect.class);
+        manager.load("explosion", ParticleEffect.class);
         manager.load("impact-40.fnt", BitmapFont.class);
         manager.load("gameover.png", Texture.class);
         manager.load("sounds/journey.mp3", Music.class);
